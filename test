@@ -192,7 +192,7 @@ cleanup
 
 echo "The device should now connect to your local network"
 
-echo "Subscribing to MQTT topic and waiting for messages from device"
+echo "Subscribing to MQTT topic and waiting for 3 messages from device"
 broker_ip=$(cat secrets | grep "bip" | sed -e 's/bip=//')
 if mosquitto_sub -h "${broker_ip}" -t "${MQTT_TOPIC}" -d -C 3;
 then
