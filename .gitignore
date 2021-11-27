@@ -1,3 +1,5 @@
 firmware
 /*.zip
 *.py
+secrets
+wpa.conf

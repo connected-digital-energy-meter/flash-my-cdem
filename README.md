@@ -9,11 +9,12 @@ This script can also be used to test your CDEM device.
 ## Install Dependencies
 
 ```bash
-sudo apt install curl jq
+sudo apt install curl jq mosquitto-clients
 ```
 
 * curl: http requests
 * jq: parsing json
+* mosquitto-clients: for subscribing to mqtt topic
 
 Make sure you have `pyserial` and `esptool` installed as a python package:
 
@@ -38,4 +39,20 @@ Just execute the script and answer the questions asked to you:
 
 ```bash
 ./flash
+```
+
+## Automatic CDEM Test - EXPERIMENTAL
+
+This is an early experimental script. May break any time. Only use at own risk and after reviewing the script.
+
+```bash
+./test
+```
+
+It was designed to test a batch of CDEM devices.
+
+If the WiFi takes more than a minute to setup after a while, it might be because some `wpa_supplicant` processes are hanging around. A multi-kill can take care of that (at own risk again):
+
+```bash
+ps ax | grep wpa.conf | awk '{ print $1}' | xargs -L1 sudo kill
 ```

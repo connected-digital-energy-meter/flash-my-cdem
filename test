@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+
+###############################
+######## CONFIGURATION ########
+###############################
+INTERFACE=wlp4s0
+DEVICE_IP=172.16.10.1
+
+BROKER_IP=141.105.126.62
+MQTT_TOPIC=test/auto/cdem/payload
+
+DEVICE="/dev/ttyUSB0"
+
+function pause() {
+   read -p "$* [ENTER TO CONTINUE]"
+}
+
+function wait_for_ip_address() {
+  echo "Waiting for IP Address 172.16.10.xxx"
+  while ! ip address show dev "${INTERFACE}" | grep '172.16.10.' > /dev/null
+  do
+    sleep 1
+    echo -n "."
+  done
+  echo ""
+}
+
+# $1 = question
+answer="nothing"
+function yes_default_no_question() {
+
+  answer="nothing"
+  while [ -n "${answer}" -a "${answer}" != "y" -a "${answer}" != "n" -a "${answer}" != "yes" -a "${answer}" != "no" ];
+  do
+    echo -n "$1 [Y(es)/n(o)]: "
+    read answer
+    answer=$(echo "${answer}" | tr '[:upper:]' '[:lower:]')
+  done
+
+  if [ "${answer}" == "yes" -o "${answer}" == "y" -o -z "${answer}" ];
+  then
+    answer="yes"
+  else
+    answer="no"
+  fi
+}
+
+function cleanup() {
+  echo "Releasing IP Address"
+  sudo dhclient "${INTERFACE}" -r
+
+  echo "Shutting down Wireless Interface"
+  sudo ifconfig "${INTERFACE}" down
+}
+
+function kill_script() {
+  cleanup &
+  exit -1;
+}
+
+function restart_device() {
+  echo "Restarting the device ..."
+  # esptool.py --chip esp8266 --port "${DEVICE}" --baud 115200 --before default_reset --after hard_reset chip_id
+  ./reset.py "${DEVICE}"
+  echo "Waiting a bit to give device some time ..."
+  sleep 10
+}
+
+function connect_to_access_point() {
+  echo "Trying to connect to Access Point of CDEM. Please ignore driver warnings/errors."
+  sudo ifconfig "${INTERFACE}" up
+  wpa_passphrase "CDEM-Config" "smartmeter" > wpa.conf
+  sudo wpa_supplicant -c ./wpa.conf -i "${INTERFACE}" > /dev/null &
+    # -B = run in background
+
+  echo "Requesting an IP Address ..."
+  sudo dhclient -v "${INTERFACE}" &
+
+  wait_for_ip_address
+}
+
+SUCCEEDED_TESTS=""
+FAILED_TESTS=""
+RED='\033[0;31m'
+GREEN='\033[1;32m'
+NC='\033[0m' # No Color
+
+# $1 = message
+function ok() {
+  echo -e "${GREEN}$1${NC}"
+  SUCCEEDED_TESTS="${SUCCEEDED_TESTS}\n$1"
+}
+
+# $1 = message
+function failed() {
+  echo -e "${RED}$1${NC}"
+  FAILED_TESTS="${FAILED_TESTS}\n$1"
+}
+
+function print_final_report() {
+  echo "The following tests succeeded:"
+  echo -e "${GREEN}${SUCCEEDED_TESTS}${NC}"
+  
+  echo "The following tests failed:"
+  echo -e "${GREEN}${FAILED_TESTS}${NC}"
+}
+
+echo "   _____ _____  ______ __  __         _____ "
+echo "  / ____|  __ \\|  ____|  \\/  |       | ____|"
+echo " | |    | |  | | |__  | \\  / | __   _| |__  "
+echo " | |    | |  | |  __| | |\\/| | \\ \\ / /___ \\ "
+echo " | |____| |__| | |____| |  | |  \\ V / ___) |"
+echo "  \\_____|_____/|______|_|__|_|   \\_/ |____/ "
+echo "     /\\        | |   |__   __|      | |     "
+echo "    /  \\  _   _| |_ ___ | | ___  ___| |_    "
+echo "   / /\\ \\| | | | __/ _ \\| |/ _ \\/ __| __|   "
+echo "  / ____ \\ |_| | || (_) | |  __/\\__ \\ |_    "
+echo " /_/    \\_\\__,_|\\__\\___/|_|\\___||___/\\__|   "
+echo ""
+echo ""
+echo "  ______  _____ _____  __ ___                    _         _ "
+echo " |  ____|/ ____|  __ \\/_ |__ \\                  | |       | |"
+echo " | |__  | (___ | |__) || |  ) |___    ___  _ __ | |_   _  | |"
+echo " |  __|  \\___ \\|  ___/ | | / // __|  / _ \\| '_ \\| | | | | | |"
+echo " | |____ ____) | |     | |/ /_\\__ \\ | (_) | | | | | |_| | |_|"
+echo " |______|_____/|_|     |_|____|___/  \\___/|_| |_|_|\\__, | (_)"
+echo "                                                    __/ |    "
+echo "                                                   |___/     "
+echo ""
+echo ""
+echo ""
+
+
+# Trap ctrl-c and call ctrl_c()
+trap kill_script INT
+
+echo "This script can automatically test the device."
+echo "Please do note that this is a very EXPERIMENTAL feature!"
+echo "It should only be used when you know what it's doing!"
+echo ""
+
+echo "Please connect the device to the digital meter as well as the computer."
+echo "Also make sure it is in METER mode."
+echo ""
+
+pause "Ready to start?"
+
+if [ ! -f "./secrets" ];
+then
+  echo "Please create secrets before starting (use secrets.example)"
+  exit -1
+fi
+
+restart_device
+
+connect_to_access_point
+
+echo "Fetching index page ..."
+
+if curl -s "${DEVICE_IP}" | grep "CDEM" > /dev/null;
+then
+  ok "[V] Index page succesfully retrieved"
+else
+  failed "[X] Failed to retrieve index page"
+fi
+
+topic=$(echo "${MQTT_TOPIC}" | sed -e 's/\//%2F/g')
+data="$(paste -sd "&" secrets)&dhcp=1&topic=${topic}&period=10&port=1883"
+if curl -s -X POST -H "Content-Type: application/x-www-form-urlencoded" -d "${data}" "${DEVICE_IP}" > /dev/null;
+then
+  ok "[V] Succesfully configured device"
+else
+  failed "[X] Failed to configure device"
+fi
+
+cleanup
+
+restart_device
+
+connect_to_access_point
+
+echo "Requesting Captive portal to shut down and continue boot process"
+
+if curl -s "${DEVICE_IP}/cancel" | grep "CDEM" > /dev/null;
+then
+  ok "[V] Succesfully shut off the captive portal"
+else
+  failed "[X] Failed to shut off the captive portal"
+fi
+
+cleanup
+
+echo "The device should now connect to your local network"
+
+echo "Subscribing to MQTT topic and waiting for messages from device"
+broker_ip=$(cat secrets | grep "bip" | sed -e 's/bip=//')
+if mosquitto_sub -h "${broker_ip}" -t "${MQTT_TOPIC}" -d -C 3;
+then
+  ok "[V] Succesfully received 3 decoded payload messages via MQTT"
+else
+  failed "[X] Could not detect messages via MQTT"
+fi
+
+echo "Resetting the device settings back to factory defaults."
+
+restart_device
+
+connect_to_access_point
+
+echo "Requesting to reset to factory default settings"
+
+if curl -s "${DEVICE_IP}/reset" | grep "CDEM" > /dev/null;
+then
+  ok "[V] Succesfully reset to factory defaults"
+else
+  failed "[X] Failed to reset to factory defaults"
+fi
+
+cleanup
+
+print_final_report
+
+echo "Done testing the device"
+echo "The data and comm LED should now be blinking alternating"

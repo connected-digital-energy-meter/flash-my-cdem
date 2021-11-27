@@ -34,26 +34,6 @@ function require_python_package() {
   fi;
 }
 
-# $1 = question
-answer="nothing"
-function yes_default_no_question() {
-
-  answer="nothing"
-  while [ -n "${answer}" -a "${answer}" != "y" -a "${answer}" != "n" -a "${answer}" != "yes" -a "${answer}" != "no" ];
-  do
-    echo -n "$1 [Y(es)/n(o)]: "
-    read answer
-    answer=$(echo "${answer}" | tr '[:upper:]' '[:lower:]')
-  done
-
-  if [ "${answer}" == "yes" -o "${answer}" == "y" -o -z "${answer}" ];
-  then
-    answer="yes"
-  else
-    answer="no"
-  fi
-}
-
 echo "  ______  _______   _______ .___  ___.    ____    ____  _____                "
 echo " /      ||       \\ |   ____||   \\/   |    \\   \\  /   / | ____|               "
 echo "|  ,----'|  .--.  ||  |__   |  \\  /  |     \\   \\/   /  | |__                 "
@@ -81,76 +61,70 @@ echo ""
 echo ""
 echo ""
 
-# echo "Checking dependencies ..."
-# require_python_package "pyserial"
-# require_python_package "esptool"
+echo "Checking dependencies ..."
+require_python_package "pyserial"
+require_python_package "esptool"
 
-# pause "Ready to start?"
+echo "Make sure that the device is placed in PROGRAMMING mode"
+echo ""
 
-# if [ ! -f ./upload.py ];
-# then
-#   echo "Fetching latest upload.py script (flash tool)"
-#   if ! wget "${UPLOAD_SCRIPT}" -O upload.py -o /dev/null;
-#   then
-#     echo "[ERROR] Could not download upload.py from ${UPLOAD_SCRIPT}"
-#     exit -1
-#   fi
-#   chmod u+x upload.py
-# fi
+pause "Ready to start?"
 
-# if [ "${RELEASE}" == "latest" ];
-# then
-#   RELEASE_ASSET=$(curl -s \
-#     -H "Accept: application/vnd.github.v3+json" \
-#     https://api.github.com/repos/connected-digital-energy-meter/cdem-firmware/releases/latest \
-#   | jq -r '.assets[0] .browser_download_url')
-# else
-#   RELEASE_ASSET=$(curl -s \
-#     -H "Accept: application/vnd.github.v3+json" \
-#     https://api.github.com/repos/connected-digital-energy-meter/cdem-firmware/releases/tags/${RELEASE} \
-#   | jq -r '.assets[0] .browser_download_url')
-# fi
-
-# if [ "${RELEASE_ASSET}" == "null" ];
-# then
-#   echo "[ERROR] Could not find a release called \"${RELEASE}\""
-#   exit -1
-# fi
-
-# echo "Found release asset ${RELEASE_ASSET}"
-
-# echo "Downloading release asset ..."
-# ZIPFILE="cdem_firmware_${RELEASE}.zip"
-# if ! wget "${RELEASE_ASSET}" -O "${ZIPFILE}" -o /dev/null;
-# then
-#   echo "[ERROR] Failed to download release file"
-#   exit -1
-# fi
-
-# echo "Extracting release asset into output dir ${OUTPUT_DIR}"
-# rm -rf "${OUTPUT_DIR}"
-# unzip "${ZIPFILE}" -d "${OUTPUT_DIR}"
-
-# pause "Ready to start flashing the device."
-
-# wait_for_device "${DEVICE}"
-
-# ./upload.py --chip esp8266 --port /dev/ttyUSB0 --baud 115200 --before default_reset \
-#  --after hard_reset write_flash 0x0 "./${OUTPUT_DIR}/CDEM_Firmware.ino.bin"
-
-# if [ ! $? -eq 0 ];
-# then
-#   echo "The flash process failed for some reason."
-#   echo "Is the programming jumper placed in PROG mode ?"
-#   echo "Else check the log output above"
-#   exit -1
-# fi
-
-# echo "Successfully flashed the CDEM device"
-
-yes_default_no_question "Would you like to test the device?"
-if [ "${answer}" == "no" ];
+if [ ! -f ./upload.py ];
 then
-  echo "Have fun with your freshly flashed CDEM device."
-  exit 0
+  echo "Fetching latest upload.py script (flash tool)"
+  if ! wget "${UPLOAD_SCRIPT}" -O upload.py -o /dev/null;
+  then
+    echo "[ERROR] Could not download upload.py from ${UPLOAD_SCRIPT}"
+    exit -1
+  fi
+  chmod u+x upload.py
 fi
+
+if [ "${RELEASE}" == "latest" ];
+then
+  RELEASE_ASSET=$(curl -s \
+    -H "Accept: application/vnd.github.v3+json" \
+    https://api.github.com/repos/connected-digital-energy-meter/cdem-firmware/releases/latest \
+  | jq -r '.assets[0] .browser_download_url')
+else
+  RELEASE_ASSET=$(curl -s \
+    -H "Accept: application/vnd.github.v3+json" \
+    https://api.github.com/repos/connected-digital-energy-meter/cdem-firmware/releases/tags/${RELEASE} \
+  | jq -r '.assets[0] .browser_download_url')
+fi
+
+if [ "${RELEASE_ASSET}" == "null" ];
+then
+  echo "[ERROR] Could not find a release called \"${RELEASE}\""
+  exit -1
+fi
+
+echo "Found release asset ${RELEASE_ASSET}"
+
+echo "Downloading release asset ..."
+ZIPFILE="cdem_firmware_${RELEASE}.zip"
+if ! wget "${RELEASE_ASSET}" -O "${ZIPFILE}" -o /dev/null;
+then
+  echo "[ERROR] Failed to download release file"
+  exit -1
+fi
+
+echo "Extracting release asset into output dir ${OUTPUT_DIR}"
+rm -rf "${OUTPUT_DIR}"
+unzip "${ZIPFILE}" -d "${OUTPUT_DIR}"
+
+wait_for_device "${DEVICE}"
+
+./upload.py --chip esp8266 --port "${DEVICE}" --baud 115200 --before default_reset \
+ --after hard_reset write_flash 0x0 "./${OUTPUT_DIR}/CDEM_Firmware.ino.bin"
+
+if [ ! $? -eq 0 ];
+then
+  echo "The flash process failed for some reason."
+  echo "Is the programming jumper placed in PROG mode ?"
+  echo "Else check the log output above"
+  exit -1
+fi
+
+echo "Have fun with your freshly flashed CDEM device."
